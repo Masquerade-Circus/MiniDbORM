@@ -4,7 +4,7 @@
 	 *  By Masquerade Circus
 	 *  christian@masquerade-circus.net
 	 */
-	class Mini_Db{
+	class MiniDbORM{
 		
 		function __construct($host, $database, $user, $password){
 			$this->db = new PDO("mysql:host=$host;dbname=$database",$user, $password);
