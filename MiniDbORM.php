@@ -129,7 +129,7 @@
 				$sql.= ' WHERE '.$where;
 			if ($limit !== 0)
 				$sql.= ' LIMIT '.$limit;
-			$sth = $this->db->prepare($s);
+			$sth = $this->db->prepare($sql);
 			$sth->execute();
 			$result = $sth->fetchAll(PDO::FETCH_OBJ);
 			return $limit === 1 && count($result) > 0 ? $result[0] : $result;
