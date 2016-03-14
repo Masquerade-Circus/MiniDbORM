@@ -1,4 +1,5 @@
 <?php
+
 	/**
 	 *  Small Db ORM
 	 *  By Masquerade Circus
@@ -6,19 +7,39 @@
 	 */
 	class MiniDbORM{
 
-		function __construct($host, $database, $user, $password, $errormode = PDO::ERRMODE_EXCEPTION){
-			$this->db = new PDO("mysql:host=$host;dbname=$database",$user, $password);
+		function __construct($host, $database, $user, $password, $errormode = PDO::ERRMODE_EXCEPTION, $sql = false){
+			$sql ?
+				$this->db = new PDO("sqlsrv:server = $host; Database = $database",$user, $password) :
+				$this->db = new PDO("mysql:host = $host; dbname = $database",$user, $password);
+
+			$this->sql = $sql;
+
 			$this->db->setAttribute(PDO::ATTR_ERRMODE, $errormode);
 		}
 
 		function tableExists($table) {
+
+			if ($this->sql){
+				$exists = $this->db->prepare("SELECT TABLE_NAME FROM INFORMATION_SCHEMA.Tables WHERE TABLE_NAME = '$table'");
+				$exists->execute();
+				$array = $exists->fetchAll(PDO::FETCH_OBJ);
+				return count($array) > 0;
+			}
+
 			return $this->db->query("SHOW TABLES LIKE '$table'")->rowCount() > 0;
 		}
 
 		function getTableFields($table){
-			$sql = $this->db->prepare("DESCRIBE $table");
+			$sql = $this->db->prepare($this->sql ? "SP_COLUMNS $table" : "DESCRIBE $table");
 			$sql->execute();
-			return $sql->fetchAll(PDO::FETCH_COLUMN);
+			$tableFields = $sql->fetchAll(PDO::FETCH_OBJ);
+			if ($this->sql){
+				$fields = array();
+				foreach ($tableFields as $key => $value)
+					array_push($fields, $value->COLUMN_NAME);
+				$tableFields = $fields;
+			}
+			return $tableFields;
 		}
 
 		function save($table, $values){
@@ -41,6 +62,7 @@
 			$keys = join($keys, ',');
 			$bindnames = join($bindnames, ',');
 			$sql = "INSERT INTO $table ( $keys ) VALUES ( $bindnames )";
+
 			$sth = $this->db->prepare($sql);
 			$sth->execute($binds);
 			return $this->db->lastInsertId();
