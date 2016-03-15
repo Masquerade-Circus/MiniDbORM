@@ -17,6 +17,13 @@
 			$this->db->setAttribute(PDO::ATTR_ERRMODE, $errormode);
 		}
 
+		function log($value = null, $exit = false){
+			echo '<pre>'. var_dump($value). '</pre>';
+			echo '<pre>'. print_r($value, true). '</pre>';
+			if ($exit)
+				exit();
+		}
+
 		function tableExists($table) {
 
 			if ($this->sql){
@@ -117,7 +124,7 @@
 			if (is_float($o->limit))
 				$o->limit = strval($o->limit);
 
-			$sql = 'SELECT * FROM '.$table;
+			$sql = ' * FROM '.$table;
 			if ($o->where !== null)
 				$sql .= ' WHERE '.$o->where;
 
@@ -125,9 +132,12 @@
 				$sql .= ' ORDER BY '.$o->order;
 
 			if ($o->limit !== null)
-				$sql .= ' LIMIT '.$o->limit;
+				if ($this->sql)
+					$sql = ' TOP '. $o->limit . $sql;
+					else
+					$sql.= ' LIMIT '.$o->limit;
 
-			$sth = $this->db->prepare($sql);
+			$sth = $this->db->prepare('SELECT'.$sql);
 			$sth->execute();
 			return $sth->fetchAll(PDO::FETCH_OBJ);
 		}
@@ -146,12 +156,17 @@
 
 		function find($table, $where = null, $limit = 1) {
 			if (!$this->tableExists($table)) return false;
-			$sql = 'SELECT * FROM '.$table;
+			$sql = ' * FROM '.$table;
 			if ($where !== null)
 				$sql.= ' WHERE '.$where;
+
 			if ($limit !== 0)
-				$sql.= ' LIMIT '.$limit;
-			$sth = $this->db->prepare($sql);
+				if ($this->sql)
+					$sql = ' TOP '. $limit . $sql;
+					else
+					$sql.= ' LIMIT '.$limit;
+
+			$sth = $this->db->prepare('SELECT'. $sql);
 			$sth->execute();
 			$result = $sth->fetchAll(PDO::FETCH_OBJ);
 			return $limit === 1 && count($result) > 0 ? $result[0] : $result;
