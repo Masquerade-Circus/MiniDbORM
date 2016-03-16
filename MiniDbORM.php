@@ -10,18 +10,11 @@
 		function __construct($host, $database, $user, $password, $errormode = PDO::ERRMODE_EXCEPTION, $sql = false){
 			$sql ?
 				$this->db = new PDO("sqlsrv:server = $host; Database = $database",$user, $password) :
-				$this->db = new PDO("mysql:host = $host; dbname = $database",$user, $password);
+				$this->db = new PDO("mysql:host=$host;dbname=$database",$user, $password);
 
 			$this->sql = $sql;
 
 			$this->db->setAttribute(PDO::ATTR_ERRMODE, $errormode);
-		}
-
-		function log($value = null, $exit = false){
-			echo '<pre>'. var_dump($value). '</pre>';
-			echo '<pre>'. print_r($value, true). '</pre>';
-			if ($exit)
-				exit();
 		}
 
 		function tableExists($table) {
@@ -39,12 +32,14 @@
 		function getTableFields($table){
 			$sql = $this->db->prepare($this->sql ? "SP_COLUMNS $table" : "DESCRIBE $table");
 			$sql->execute();
-			$tableFields = $sql->fetchAll(PDO::FETCH_OBJ);
 			if ($this->sql){
+				$tableFields = $sql->fetchAll(PDO::FETCH_OBJ);
 				$fields = array();
 				foreach ($tableFields as $key => $value)
 					array_push($fields, $value->COLUMN_NAME);
 				$tableFields = $fields;
+			} else {
+				$tableFields = $sql->fetchAll(PDO::FETCH_COLUMN);
 			}
 			return $tableFields;
 		}
