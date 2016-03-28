@@ -7,41 +7,83 @@
 	 */
 	class MiniDbORM{
 
-		function __construct($host, $database, $user, $password, $errormode = PDO::ERRMODE_EXCEPTION, $sql = false){
-			$sql ?
-				$this->db = new PDO("sqlsrv:server = $host; Database = $database",$user, $password) :
-				$this->db = new PDO("mysql:host=$host;dbname=$database",$user, $password);
-
+		function __construct($host, $database, $user, $password, $errormode = null, $sql = false){
+			$this->host = $host;
+			$this->database = $database;
+			$this->user = $user;
+			$this->password = $password;
 			$this->sql = $sql;
+			$this->pdo = true;
+			$extension = $sql ? 'php_sqlsrv_56_ts' : 'php_mysql';
 
-			$this->db->setAttribute(PDO::ATTR_ERRMODE, $errormode);
+			if ( !extension_loaded('pdo') || !extension_loaded($extension))
+				$this->pdo = false;
+
+			if ($this->pdo){
+				if ($errormode = null)
+					$errormode = PDO::ERRMODE_EXCEPTION;
+				$sql ?
+					$this->db = new PDO("sqlsrv:server = $host; Database = $database",$user, $password) :
+					$this->db = new PDO("mysql:host=$host;dbname=$database",$user, $password);
+
+				$this->db->setAttribute(PDO::ATTR_ERRMODE, $errormode);
+			}
 		}
 
-		function tableExists($table) {
+		function query($query){
+			$con = mysql_connect($this->host, $this->user, $this->password);
+			mysql_select_db($this->database);
+			$result_query = mysql_query($query);
 
-			if ($this->sql){
-				$exists = $this->db->prepare("SELECT TABLE_NAME FROM INFORMATION_SCHEMA.Tables WHERE TABLE_NAME = '$table'");
-				$exists->execute();
-				$array = $exists->fetchAll(PDO::FETCH_OBJ);
-				return count($array) > 0;
+			$results = array();
+			while ($line = mysql_fetch_array($result_query, MYSQL_ASSOC))
+				array_push($results, (object)$line);
+			mysql_free_result($result_query);
+
+			if (count($results) == 0)
+				$results = $result_query;
+
+			mysql_close($con);
+			return $results;
+		}
+
+		function tableExists($table){
+			if ($this->pdo){
+				if ($this->sql){
+					$exists = $this->db->prepare("SELECT TABLE_NAME FROM INFORMATION_SCHEMA.Tables WHERE TABLE_NAME = '$table'");
+					$exists->execute();
+					$array = $exists->fetchAll(PDO::FETCH_OBJ);
+					return count($array) > 0;
+				}
+
+				return $this->db->query("SHOW TABLES LIKE '$table'")->rowCount() > 0;
 			}
 
-			return $this->db->query("SHOW TABLES LIKE '$table'")->rowCount() > 0;
+			return count($this->query("SHOW TABLES LIKE '$table'")) > 0;
 		}
 
 		function getTableFields($table){
-			$sql = $this->db->prepare($this->sql ? "SP_COLUMNS $table" : "DESCRIBE $table");
-			$sql->execute();
-			if ($this->sql){
-				$tableFields = $sql->fetchAll(PDO::FETCH_OBJ);
-				$fields = array();
-				foreach ($tableFields as $key => $value)
-					array_push($fields, $value->COLUMN_NAME);
-				$tableFields = $fields;
-			} else {
-				$tableFields = $sql->fetchAll(PDO::FETCH_COLUMN);
+			if ($this->pdo){
+				$sql = $this->db->prepare($this->sql ? "SP_COLUMNS $table" : "DESCRIBE $table");
+				$sql->execute();
+				if ($this->sql){
+					$tableFields = $sql->fetchAll(PDO::FETCH_OBJ);
+					$fields = array();
+					foreach ($tableFields as $key => $value)
+						array_push($fields, $value->COLUMN_NAME);
+					$tableFields = $fields;
+				} else {
+					$tableFields = $sql->fetchAll(PDO::FETCH_COLUMN);
+				}
+				return $tableFields;
 			}
-			return $tableFields;
+
+			$tableFields = $this->query("DESCRIBE $table");
+			$fields = array();
+			foreach ($tableFields as $key => $value)
+				array_push($fields, $value->Field);
+
+			return $fields;
 		}
 
 		function save($table, $values){
@@ -65,9 +107,19 @@
 			$bindnames = join($bindnames, ',');
 			$sql = "INSERT INTO $table ( $keys ) VALUES ( $bindnames )";
 
-			$sth = $this->db->prepare($sql);
-			$sth->execute($binds);
-			return $this->db->lastInsertId();
+			if ($this->pdo){
+				$sth = $this->db->prepare($sql);
+				$sth->execute($binds);
+				return $this->db->lastInsertId();
+			} else {
+				foreach ($values as $field => $value){
+					$field = preg_replace('[^A-Za-z0-9_]', '', $field);
+					if (isset($binds[":$field"]))
+						$sql = preg_replace("/:$field/", "'".$binds[":$field"]."'", $sql);
+				}
+			}
+
+			return $this->query($sql);
 		}
 
 		function update($table, $values, $id, $idFieldName = 'id'){
@@ -75,8 +127,8 @@
 
 			$tableFields = $this->getTableFields($table);
 
-			$binds = [':id' => $id];
-			$bindnames = [];
+			$binds = array(':id' => $id);
+			$bindnames = array();
 
 			if (is_object($values)) $values = (array)$values;
 			foreach($values as $field => $value) {
@@ -91,30 +143,47 @@
 
 			$bindnames = join($bindnames, ',');
 			$sql = 'UPDATE '.$table." SET $bindnames WHERE ".$idFieldName." = :id";
-			$sth = $this->db->prepare($sql);
-			$sth->execute($binds);
-			return $id;
+
+			if ($this->pdo){
+				$sth = $this->db->prepare($sql);
+				$sth->execute($binds);
+				return $id;
+			} else {
+				foreach ($values as $field => $value){
+					$field = preg_replace('[^A-Za-z0-9_]', '', $field);
+					if (isset($binds[":$field"]))
+						$sql = preg_replace("/:$field/", "'".$binds[":$field"]."'", $sql);
+				}
+				$sql = preg_replace("/:id/", $id, $sql);
+			}
+
+			return $this->query($sql);
 		}
 
 		function load($table, $id, $idFieldName = 'id') {
 			if (!$this->tableExists($table)) return false;
 
 			$sql = 'SELECT * FROM '.$table.' WHERE '.$idFieldName.' = :id';
-			$sth = $this->db->prepare($sql);
-			$sth->execute([':id' => $id]);
-			$result = $sth->fetchAll(PDO::FETCH_OBJ);
+
+			if ($this->pdo){
+				$sth = $this->db->prepare($sql);
+				$sth->execute(array(':id' => $id));
+				$result = $sth->fetchAll(PDO::FETCH_OBJ);
+			} else {
+				$result = $this->query(preg_replace('/:id/', $id, $sql));
+			}
 
 			return count($result) > 0 ? $result[0] : $result;
 		}
 
-		function loadAll($table, $options = []) {
+		function loadAll($table, $options = array()) {
 			if (!$this->tableExists($table)) return false;
 
-			$o = (object)array_merge([
+			$o = (object)array_merge(array(
 				'where' => null,
 				'limit' => null,
 				'order' => null
-			], $options);
+			), $options);
 
 			if (is_float($o->limit))
 				$o->limit = strval($o->limit);
@@ -132,21 +201,34 @@
 					else
 					$sql.= ' LIMIT '.$o->limit;
 
-			$sth = $this->db->prepare('SELECT'.$sql);
-			$sth->execute();
-			return $sth->fetchAll(PDO::FETCH_OBJ);
+			if ($this->pdo){
+				$sth = $this->db->prepare('SELECT'.$sql);
+				$sth->execute();
+				return $sth->fetchAll(PDO::FETCH_OBJ);
+			}
+
+			return $this->query('SELECT'.$sql);
+
 		}
 
 		function sql($sql = null){
-			$sth = $this->db->prepare($sql);
-			$sth->execute();
-			return $sth->fetchAll(PDO::FETCH_OBJ);
+			if ($this->pdo){
+				$sth = $this->db->prepare($sql);
+				$sth->execute();
+				return $sth->fetchAll(PDO::FETCH_OBJ);
+			}
+
+			return $this->query($sql);
 		}
 
 		function delete($table, $id, $idFieldName = 'id'){
 			if (!$this->tableExists($table)) return false;
-			$sth = $this->db->prepare('DELETE FROM '.$table.' WHERE '.$idFieldName.' = '.$id);
-			return $sth->execute();
+			$sql = 'DELETE FROM '.$table.' WHERE '.$idFieldName.' = '.$id;
+			if ($this->pdo){
+				$sth = $this->db->prepare($sql);
+				return $sth->execute();
+			}
+			$this->query($sql);
 		}
 
 		function find($table, $where = null, $limit = 1) {
@@ -161,9 +243,14 @@
 					else
 					$sql.= ' LIMIT '.$limit;
 
-			$sth = $this->db->prepare('SELECT'. $sql);
-			$sth->execute();
-			$result = $sth->fetchAll(PDO::FETCH_OBJ);
+			if ($this->pdo){
+				$sth = $this->db->prepare('SELECT'. $sql);
+				$sth->execute();
+				$result = $sth->fetchAll(PDO::FETCH_OBJ);
+			} else {
+				$result = $this->query('SELECT'. $sql);
+			}
+
 			return $limit === 1 && count($result) > 0 ? $result[0] : $result;
 		}
 	}
