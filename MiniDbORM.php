@@ -35,13 +35,17 @@
 			mysql_select_db($this->database);
 			$result_query = mysql_query($query);
 
-			$results = array();
-			while ($line = mysql_fetch_array($result_query, MYSQL_ASSOC))
-				array_push($results, (object)$line);
-			mysql_free_result($result_query);
+			if (!is_bool($result_query)){
+				$results = array();
+				while ($line = mysql_fetch_array($result_query, MYSQL_ASSOC))
+					array_push($results, (object)$line);
+				mysql_free_result($result_query);
 
-			if (count($results) == 0)
+				if (count($results) == 0)
+					$results = $result_query;
+			} else {
 				$results = $result_query;
+			}
 
 			mysql_close($con);
 			return $results;
@@ -115,7 +119,7 @@
 				foreach ($values as $field => $value){
 					$field = preg_replace('[^A-Za-z0-9_]', '', $field);
 					if (isset($binds[":$field"]))
-						$sql = preg_replace("/:$field/", "'".$binds[":$field"]."'", $sql);
+						$sql = preg_replace("/(\s|,)?:$field(,|$|\s)/", "$1'".$binds[":$field"]."'$2", $sql);
 				}
 			}
 
@@ -152,7 +156,7 @@
 				foreach ($values as $field => $value){
 					$field = preg_replace('[^A-Za-z0-9_]', '', $field);
 					if (isset($binds[":$field"]))
-						$sql = preg_replace("/:$field/", "'".$binds[":$field"]."'", $sql);
+						$sql = preg_replace("/(\s|,)?:$field(,|$|\s)/", "$1'".$binds[":$field"]."'$2", $sql);
 				}
 				$sql = preg_replace("/:id/", $id, $sql);
 			}
